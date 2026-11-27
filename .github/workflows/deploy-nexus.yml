@@ -180,6 +180,71 @@ jobs:
   #
   # O gate acima roda em PR também; este job, não. workflow_dispatch republica, mas só a partir
   # da main: agora isto é produção, e uma branch qualquer não pode ir para o ar.
+  # Deploy temporário no MonsterASP (usenexus.runasp.net) para o vídeo do TCC enquanto a VPS
+  # está fora. Só roda por workflow_dispatch a partir do branch demo/monsterasp-tcc.
+  deploy-monsterasp:
+    needs: [version, verify]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/demo/monsterasp-tcc'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://usenexus.runasp.net
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: publish
+          path: ./publish
+      - name: Configurar para o MonsterASP
+        env:
+          CS: ${{ secrets.PROD_SQL_CONNECTION_STRING }}
+        run: |
+          f=publish/appsettings.Production.json
+          jq --arg cs "$CS" '.ConnectionStrings.DefaultConnection = $cs
+            | .PUBLIC_BASE_URL = "https://usenexus.runasp.net"
+            | .AllowedHosts = "usenexus.runasp.net"' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+      - name: Completar a cadeia do certificado do FTP
+        run: |
+          set -euo pipefail
+          HOST="${{ secrets.FTP_SERVER }}"
+          D=$(mktemp -d)
+          openssl s_client -connect "$HOST:21" -starttls ftp </dev/null 2>/dev/null | openssl x509 -out "$D/0.pem"
+          CUR="$D/0.pem"; : > "$D/extra.pem"
+          for i in 1 2 3 4; do
+            URI=$(openssl x509 -in "$CUR" -noout -text | grep -oP 'CA Issuers - URI:\K\S+' | head -1 || true)
+            [ -n "$URI" ] || break
+            curl -fsSL -o "$D/$i.bin" "$URI"
+            openssl x509 -inform DER -in "$D/$i.bin" -out "$D/$i.pem" 2>/dev/null || openssl x509 -in "$D/$i.bin" -out "$D/$i.pem"
+            cat "$D/$i.pem" >> "$D/extra.pem"
+            CUR="$D/$i.pem"
+            openssl verify -untrusted "$D/extra.pem" "$CUR" >/dev/null 2>&1 && break
+          done
+          openssl verify -untrusted "$D/extra.pem" "$D/0.pem"
+          cp "$D/extra.pem" "$GITHUB_WORKSPACE/ftps-ca.pem"
+          cat /etc/ssl/certs/ca-certificates.crt "$D/extra.pem" > "$GITHUB_WORKSPACE/ftps-ca-bundle.pem"
+          echo "FTPS_CA=$GITHUB_WORKSPACE/ftps-ca.pem" >> "$GITHUB_ENV"
+          echo "FTPS_CA_BUNDLE=$GITHUB_WORKSPACE/ftps-ca-bundle.pem" >> "$GITHUB_ENV"
+      - name: Tirar do ar durante o envio
+        run: |
+          echo "App temporarily offline for deployment." > app_offline.htm
+          curl --ssl-reqd --ftp-pasv --cacert "$FTPS_CA_BUNDLE" -T app_offline.htm --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" "ftp://${{ secrets.FTP_SERVER }}/wwwroot/app_offline.htm"
+      - name: FTP Deploy
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        env:
+          NODE_EXTRA_CA_CERTS: ${{ env.FTPS_CA }}
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          local-dir: ./publish/
+          server-dir: /wwwroot/
+          exclude: |
+            **/App_Data/uploads/**
+      - name: Voltar ao ar
+        if: always()
+        run: |
+          curl --ssl-reqd --ftp-pasv --cacert "${FTPS_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}" --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" -Q "DELE /wwwroot/app_offline.htm" "ftp://${{ secrets.FTP_SERVER }}/"
+
   deploy-vps:
     needs: [version, verify]
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
