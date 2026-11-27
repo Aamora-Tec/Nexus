@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -39,6 +39,15 @@ if (args.Contains("--healthcheck"))
 }
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Demo no MonsterASP: o IIS de lá não deixa usar o DPAPI, então as chaves vão para uma pasta.
+var dataProtectionKeysPath = builder.Configuration["DATA_PROTECTION_KEYS_PATH"];
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+{
+    Microsoft.AspNetCore.DataProtection.DataProtectionBuilderExtensions.PersistKeysToFileSystem(
+        Microsoft.Extensions.DependencyInjection.DataProtectionServiceCollectionExtensions.AddDataProtection(builder.Services),
+        new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, dataProtectionKeysPath)));
+}
 
 // Add services to the container.
 builder.Services.AddRazorComponents()

@@ -201,7 +201,8 @@ jobs:
           f=publish/appsettings.Production.json
           jq --arg cs "$CS" '.ConnectionStrings.DefaultConnection = $cs
             | .PUBLIC_BASE_URL = "https://usenexus.runasp.net"
-            | .AllowedHosts = "usenexus.runasp.net"' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+            | .AllowedHosts = "usenexus.runasp.net"
+            | .DATA_PROTECTION_KEYS_PATH = "App_Data/keys"' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
           # Log de stdout ligado enquanto a demo estiver no ar, para diagnosticar erros.
           sed -i 's/stdoutLogEnabled="false"/stdoutLogEnabled="true"/' publish/web.config
           grep -o '<aspNetCore[^>]*>' publish/web.config
@@ -243,6 +244,7 @@ jobs:
           server-dir: /wwwroot/
           exclude: |
             **/App_Data/uploads/**
+            **/App_Data/keys/**
       - name: Voltar ao ar
         if: always()
         run: |
