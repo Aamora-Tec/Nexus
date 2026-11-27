@@ -81,7 +81,8 @@ public static class InfrastructureServiceCollectionExtensions
         if (!string.IsNullOrWhiteSpace(certPath))
         {
             var certificate = System.Security.Cryptography.X509Certificates.X509CertificateLoader
-                .LoadPkcs12FromFile(certPath, certPassword);
+                .LoadPkcs12FromFile(certPath, certPassword,
+                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.EphemeralKeySet);
             dataProtection.ProtectKeysWithCertificate(certificate);
         }
         else if (OperatingSystem.IsWindows())
