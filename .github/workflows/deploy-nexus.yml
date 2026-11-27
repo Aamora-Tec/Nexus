@@ -202,6 +202,9 @@ jobs:
           jq --arg cs "$CS" '.ConnectionStrings.DefaultConnection = $cs
             | .PUBLIC_BASE_URL = "https://usenexus.runasp.net"
             | .AllowedHosts = "usenexus.runasp.net"' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          # Log de stdout ligado enquanto a demo estiver no ar, para diagnosticar erros.
+          sed -i 's/stdoutLogEnabled="false"/stdoutLogEnabled="true"/' publish/web.config
+          grep -o '<aspNetCore[^>]*>' publish/web.config
       - name: Completar a cadeia do certificado do FTP
         run: |
           set -euo pipefail
@@ -244,6 +247,14 @@ jobs:
         if: always()
         run: |
           curl --ssl-reqd --ftp-pasv --cacert "${FTPS_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}" --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" -Q "DELE /wwwroot/app_offline.htm" "ftp://${{ secrets.FTP_SERVER }}/"
+      - name: Ler o log do servidor
+        if: always()
+        run: |
+          sleep 20; curl -s -o /dev/null -m 120 https://usenexus.runasp.net/Account/Login || true; sleep 10
+          U="${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}"; B="ftp://${{ secrets.FTP_SERVER }}/wwwroot/logs/"
+          for f in $(curl -s --ssl-reqd --ftp-pasv --cacert "$FTPS_CA_BUNDLE" --user "$U" -l "$B"); do
+            echo "== $f"; curl -s --ssl-reqd --ftp-pasv --cacert "$FTPS_CA_BUNDLE" --user "$U" "$B$f" | grep -v -i "password\|connectionstring" | tail -120
+          done
 
   deploy-vps:
     needs: [version, verify]
