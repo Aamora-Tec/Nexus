@@ -17,6 +17,7 @@ public static class DemoSeeder
 
         if (await db.Workspaces.AnyAsync(w => w.Slug == Slug))
         {
+            await SeedConversationsAsync(services, logger);
             return;
         }
 
@@ -129,5 +130,131 @@ public static class DemoSeeder
         }
 
         logger.LogWarning("Seed da demo: workspace Aamora Studio criado com {Count} tarefas.", tasks.Length);
+        await SeedConversationsAsync(services, logger);
+    }
+
+    // Mensagens no chat do workspace, conversas individuais e comentários nas tarefas. Cada parte
+    // só entra se ainda estiver vazia.
+    private static async Task SeedConversationsAsync(IServiceProvider services, ILogger logger)
+    {
+        var dbFactory = services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        var workspace = await db.Workspaces.FirstAsync(w => w.Slug == Slug);
+        var users = await db.Users
+            .Where(u => u.NormalizedEmail!.EndsWith("@DEMO.AAMORA.COM.BR"))
+            .ToDictionaryAsync(u => u.Email!.Split('@')[0], u => u.Id);
+        var ana = users["ana"];
+        var bruno = users["bruno"];
+        var carla = users["carla"];
+        var now = DateTime.UtcNow;
+
+        using var scope = services.CreateScope();
+        var chat = scope.ServiceProvider.GetRequiredService<ChatConversationService>();
+
+        async Task AddMessagesAsync(Guid conversationId, (string User, string Text, int MinutesAgo)[] messages)
+        {
+            if (await db.ChatMessages.AnyAsync(m => m.ConversationId == conversationId))
+            {
+                return;
+            }
+            foreach (var m in messages)
+            {
+                db.ChatMessages.Add(new ChatMessage
+                {
+                    Id = Guid.NewGuid(),
+                    WorkspaceId = workspace.Id,
+                    ConversationId = conversationId,
+                    UserId = m.User,
+                    Content = m.Text,
+                    CreatedAtUtc = now.AddMinutes(-m.MinutesAgo)
+                });
+            }
+        }
+
+        var general = await chat.EnsureWorkspaceConversationAsync(workspace.Id);
+        await AddMessagesAsync(general, new[]
+        {
+            (ana, "Bom dia, pessoal! Hoje começa a sprint nova do App de Delivery. 🚀", 300),
+            (bruno, "Bom dia! Já peguei o carrinho de compras, deve ficar pronto até quinta.", 295),
+            (carla, "Bom dia! Estou fechando os textos do site e depois parto para o calendário de posts.", 290),
+            (ana, "Ótimo. Lembrem de mover as tarefas no quadro conforme forem andando, assim o painel fica certinho.", 285),
+            (bruno, "Achei um bug: dá para finalizar o pedido duas vezes se tocar rápido no botão. Já abri a tarefa.", 120),
+            (ana, "Boa, Bruno! Coloquei como prioridade máxima.", 115),
+            (carla, "A sessão de fotos da equipe ficou para sexta às 14h, tudo bem para vocês?", 60),
+            (bruno, "Por mim, ok.", 58),
+            (ana, "Combinado! 📸", 55),
+        });
+
+        var anaBruno = await chat.GetOrCreateDirectAsync(workspace.Id, ana, bruno);
+        if (anaBruno is not null)
+        {
+            await AddMessagesAsync(anaBruno.Value, new[]
+            {
+                (ana, "Bruno, como está a integração com o gateway de pagamento?", 240),
+                (bruno, "O Pix já funciona no ambiente de testes. Falta o cartão de crédito.", 235),
+                (ana, "Show. Consegue me mostrar amanhã na daily?", 232),
+                (bruno, "Consigo sim, deixo preparado.", 230),
+            });
+        }
+
+        var anaCarla = await chat.GetOrCreateDirectAsync(workspace.Id, ana, carla);
+        if (anaCarla is not null)
+        {
+            await AddMessagesAsync(anaCarla.Value, new[]
+            {
+                (carla, "Ana, você pode revisar o texto da página Sobre nós?", 180),
+                (ana, "Revisei agora, ficou ótimo! Só troquei uma palavra no segundo parágrafo.", 170),
+                (carla, "Perfeito, obrigada! Já marquei como concluída.", 165),
+            });
+        }
+
+        var brunoCarla = await chat.GetOrCreateDirectAsync(workspace.Id, bruno, carla);
+        if (brunoCarla is not null)
+        {
+            await AddMessagesAsync(brunoCarla.Value, new[]
+            {
+                (carla, "Bruno, o menu do site não fecha no meu iPhone 😅", 90),
+                (bruno, "Vi a tarefa. Acho que é o evento de toque, vou olhar ainda hoje.", 85),
+            });
+        }
+
+        var comments = new (string Task, string User, string Text, int MinutesAgo)[]
+        {
+            ("Carrinho de compras", ana, "Lembrar de manter o carrinho salvo se o usuário fechar o app.", 280),
+            ("Carrinho de compras", bruno, "Boa! Vou salvar localmente e sincronizar quando abrir de novo.", 270),
+            ("Pedido duplicado ao tocar duas vezes em Finalizar", bruno, "Consegui reproduzir no Android e no iOS.", 118),
+            ("Pedido duplicado ao tocar duas vezes em Finalizar", ana, "Precisamos corrigir antes do lançamento.", 110),
+            ("Integração com gateway de pagamento", bruno, "Pix funcionando em homologação. Começando o cartão.", 230),
+            ("Texto da página Sobre nós", ana, "Aprovado! ✅", 170),
+            ("Layout responsivo da home", carla, "As fotos da equipe chegam na semana que vem, pode usar placeholder por enquanto.", 100),
+            ("Layout responsivo da home", bruno, "Combinado, deixo o espaço reservado.", 95),
+            ("Menu não fecha no iPhone", carla, "Acontece no Safari, no Chrome funciona normal.", 88),
+            ("Campanha de lançamento do app", ana, "Vamos lançar junto com a versão 1.0, depois da correção do pedido duplicado.", 200),
+            ("Campanha de lançamento do app", carla, "Já estou rascunhando o roteiro do vídeo.", 190),
+        };
+
+        var titles = comments.Select(c => c.Task).Distinct().ToList();
+        var items = await db.WorkItems
+            .Where(w => w.TaskList.Space.WorkspaceId == workspace.Id && titles.Contains(w.Title))
+            .ToDictionaryAsync(w => w.Title, w => w.Id);
+        var itemIds = items.Values.ToList();
+        if (!await db.WorkItemComments.AnyAsync(c => itemIds.Contains(c.WorkItemId)))
+        {
+            foreach (var c in comments.Where(c => items.ContainsKey(c.Task)))
+            {
+                db.WorkItemComments.Add(new WorkItemComment
+                {
+                    Id = Guid.NewGuid(),
+                    WorkItemId = items[c.Task],
+                    UserId = c.User,
+                    Content = c.Text,
+                    CreatedAtUtc = now.AddMinutes(-c.MinutesAgo)
+                });
+            }
+        }
+
+        await db.SaveChangesAsync();
+        logger.LogWarning("Seed da demo: mensagens e comentários conferidos.");
     }
 }
