@@ -206,6 +206,20 @@ jobs:
           # Log de stdout ligado enquanto a demo estiver no ar, para diagnosticar erros.
           sed -i 's/stdoutLogEnabled="false"/stdoutLogEnabled="true"/' publish/web.config
           grep -o '<aspNetCore[^>]*>' publish/web.config
+      # As contas @demo.aamora.com.br são criadas pelo cadastro do site; como o MonsterASP não
+      # envia e-mail, a confirmação é marcada direto no banco.
+      - name: Confirmar as contas de demo
+        env:
+          CS: ${{ secrets.PROD_SQL_CONNECTION_STRING }}
+        run: |
+          URL=$(python3 - <<'PY'
+          import os, urllib.parse as u
+          kv = dict(p.split('=', 1) for p in os.environ['CS'].split(';') if '=' in p)
+          k = {a.strip().lower(): b.strip() for a, b in kv.items()}
+          print(f"postgresql://{u.quote(k.get('username') or k.get('user id') or k['user'])}:{u.quote(k['password'])}@{k.get('host') or k['server']}:{k.get('port','5432')}/{k['database']}?sslmode=require")
+          PY
+          )
+          psql "$URL" -v ON_ERROR_STOP=1 -c "UPDATE \"AspNetUsers\" SET \"EmailConfirmed\" = true WHERE \"NormalizedEmail\" LIKE '%@DEMO.AAMORA.COM.BR' RETURNING \"Email\";"
       - name: Completar a cadeia do certificado do FTP
         run: |
           set -euo pipefail
