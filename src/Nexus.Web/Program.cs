@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -357,6 +357,18 @@ if (builder.Configuration.GetValue<bool>("APPLY_MIGRATIONS_ON_STARTUP") && !lice
     {
         migrationLogger.LogCritical(ex, "Startup migration failed. The application will not start.");
         throw;
+    }
+}
+
+if (builder.Configuration.GetValue<bool>("DEMO_SEED"))
+{
+    try
+    {
+        await Nexus.Web.Services.DemoSeeder.RunAsync(app.Services, app.Logger);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Seed da demo falhou.");
     }
 }
 

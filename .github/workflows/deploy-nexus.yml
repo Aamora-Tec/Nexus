@@ -202,7 +202,8 @@ jobs:
           jq --arg cs "$CS" '.ConnectionStrings.DefaultConnection = $cs
             | .PUBLIC_BASE_URL = "https://usenexus.runasp.net"
             | .AllowedHosts = "usenexus.runasp.net"
-            | .DataProtection.AllowUnprotectedKeys = true' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+            | .DataProtection.AllowUnprotectedKeys = true
+            | .DEMO_SEED = true' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
           # Log de stdout ligado enquanto a demo estiver no ar, para diagnosticar erros.
           sed -i 's/stdoutLogEnabled="false"/stdoutLogEnabled="true"/' publish/web.config
           grep -o '<aspNetCore[^>]*>' publish/web.config
