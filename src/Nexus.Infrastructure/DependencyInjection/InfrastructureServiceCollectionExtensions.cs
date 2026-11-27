@@ -1,4 +1,4 @@
-using Nexus.Domain.Entities;
+﻿using Nexus.Domain.Entities;
 using Nexus.Infrastructure.Data;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -78,11 +78,14 @@ public static class InfrastructureServiceCollectionExtensions
         var certPath = configuration["DataProtection:CertificatePath"];
         var certPassword = configuration["DataProtection:CertificatePassword"];
 
-        if (!string.IsNullOrWhiteSpace(certPath))
+        if (allowUnprotectedKeys)
+        {
+            // Demo no MonsterASP: o IIS de lá não deixa usar DPAPI nem importar PFX.
+        }
+        else if (!string.IsNullOrWhiteSpace(certPath))
         {
             var certificate = System.Security.Cryptography.X509Certificates.X509CertificateLoader
-                .LoadPkcs12FromFile(Path.Combine(AppContext.BaseDirectory, certPath), certPassword,
-                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.EphemeralKeySet);
+                .LoadPkcs12FromFile(certPath, certPassword);
             dataProtection.ProtectKeysWithCertificate(certificate);
         }
         else if (OperatingSystem.IsWindows())
