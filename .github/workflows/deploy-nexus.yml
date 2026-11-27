@@ -197,12 +197,18 @@ jobs:
       - name: Configurar para o MonsterASP
         env:
           CS: ${{ secrets.PROD_SQL_CONNECTION_STRING }}
+          PFX_PW: ${{ secrets.DEMO_DP_PFX_PASSWORD }}
+          PFX_B64: ${{ secrets.DEMO_DP_PFX_BASE64 }}
         run: |
+          # O IIS do MonsterASP não deixa usar DPAPI: as chaves de Data Protection são protegidas
+          # por um certificado guardado nos secrets do environment production.
+          echo "$PFX_B64" | base64 -d > publish/dataprotection.pfx
           f=publish/appsettings.Production.json
-          jq --arg cs "$CS" '.ConnectionStrings.DefaultConnection = $cs
+          jq --arg cs "$CS" --arg pw "$PFX_PW" '.ConnectionStrings.DefaultConnection = $cs
             | .PUBLIC_BASE_URL = "https://usenexus.runasp.net"
             | .AllowedHosts = "usenexus.runasp.net"
-            | .DATA_PROTECTION_KEYS_PATH = "App_Data/keys"' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+            | .DataProtection.CertificatePath = "dataprotection.pfx"
+            | .DataProtection.CertificatePassword = $pw' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
           # Log de stdout ligado enquanto a demo estiver no ar, para diagnosticar erros.
           sed -i 's/stdoutLogEnabled="false"/stdoutLogEnabled="true"/' publish/web.config
           grep -o '<aspNetCore[^>]*>' publish/web.config
@@ -244,7 +250,6 @@ jobs:
           server-dir: /wwwroot/
           exclude: |
             **/App_Data/uploads/**
-            **/App_Data/keys/**
       - name: Voltar ao ar
         if: always()
         run: |
