@@ -237,7 +237,7 @@
                         {
                             <p class="form-section-description"><strong>@report.TotalHours.ToString("0.00") h</strong> em @report.Entries.Count lançamentos.</p>
                             <table class="data-table">
-                                <thead><tr><th>@reportGroup.ToString() switch { "Person" => "Pessoa", "List" => "Lista", "Contract" => "Contrato", "Activity" => "Atividade", _ => "Dia" }</th><th>Horas</th><th>Lançamentos</th><th>Parte</th></tr></thead>
+                                <thead><tr><th>@(reportGroup switch { TimeReportGroup.Person => "Pessoa", TimeReportGroup.List => "Lista", TimeReportGroup.Contract => "Contrato", TimeReportGroup.Activity => "Atividade", _ => "Dia" })</th><th>Horas</th><th>Lançamentos</th><th>Parte</th></tr></thead>
                                 <tbody>
                                     @foreach (var r in report.Rows)
                                     {
